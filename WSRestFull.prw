@@ -5,12 +5,53 @@ WSRESTFUL AdvplRest DESCRIPTION "Treinamento Advpl Webservice"
     WSDATA CNPJ_CPF AS String OPTIONAL
     WSDATA codigo   AS String OPTIONAL
     WSDATA loja     AS String OPTIONAL
+
+    WSMETHOD GET Clientes ;
+        DESCRIPTION "Obtem a lista de clientes cadastrados via CPF ou CNPJ" ;
+        PATH "/clientes"
     
-    WSMETHOD GET Clientes DESCRIPTION "Obtem a lista de clientes cadastrados via CPF ou CNPJ" PATH "/clientes"
-    WSMETHOD POST Pedidos DESCRIPTION "Inclusao de pedido de venda" PATH "/pedidos"
+    WSMETHOD POST Pedidos ;
+        DESCRIPTION "Inclusao de pedido de venda" ;
+        PATH "/pedidos"
 END WSRESTFUL
 
-WSMETHOD POST Pedidos WSRECEIVE CNPJ_CPF, codigo, loja WSSERVICE AdvplRest
+WSMETHOD POST Pedidos WSSERVICE AdvplRest
+    local nIts AS Numeric, aItens, aLinha, aCabec
+    local jPedido  := jsonObject():New()
+    
+    ::SetContentType("application/json")
+    jPedido:fromJSON(::GetContent()) // Pedidos no body da requisição
+
+    aCabec := {}
+    aadd(aCabec, {"C5_CLIENTE", jPedido["cliente"],     nil})
+    aadd(aCabec, {"C5_LOJA",    jPedido["loja"],        nil})
+    aadd(aCabec, {"C5_CONDPAG", jPedido["cond_pagto"],  nil})
+    aadd(aCabec, {"C5_TPFRETE", jPedido["tipo_frete"],  nil})
+    
+    aItens := {}
+    for nIts := 1 to len(jPedido["itens"])
+        aLinha := {}
+        aadd(aLinha, {"C6_PRODUTO", jPedido["itens"][nIts]["codigo"],      nil})
+        aadd(aLinha, {"C6_PRODUTO", jPedido["itens"][nIts]["quantidade"],  nil})
+        aadd(aLinha, {"C6_PRODUTO", jPedido["itens"][nIts]["preco"],       nil})
+        aadd(aLinha, {"C6_PRODUTO", jPedido["itens"][nIts]["TES"],         nil})
+        aadd(aItens, aLinha)
+    next nIts
+    freeObj(jPedido)
+
+    BEGIN TRANSACTION
+        lMsErroAuto := .f.
+        MSExecAuto({|a,b,c,d| MATA410(a,b,c,d)}, aCabec, aItens, 3)          
+
+        If lMsErroAuto
+            SetRestFault(402, "Erro na inclusao do Pedido de venda") //MOSTRAERRO()
+            RollBackSX8()
+            DisarmTransaction()
+        Else
+            ConfirmSX8()
+            ::SetResponse("{'pedido': '" + SC5->C5_NUM + "'}")
+        EndIf
+    END TRANSACTION
 return .t.
 
 WSMETHOD GET Clientes WSRECEIVE CNPJ_CPF, codigo, loja WSSERVICE AdvplRest
@@ -41,15 +82,15 @@ WSMETHOD GET Clientes WSRECEIVE CNPJ_CPF, codigo, loja WSSERVICE AdvplRest
         SetRestFault(402, "Nenhum registro localizado")
         return .f.
     endif
-    jRet["items"] := {}
+    jRet["itens"] := {}
 
     while (cAlias)->(!eof())
-        aAdd(jRet["items"], jsonObject():New())
-        aTail(jRet["items"])["codigo"]   := (cAlias)->A1_COD
-        aTail(jRet["items"])["loja"]     := (cAlias)->A1_LOJA
-        aTail(jRet["items"])["nome"]     := rtrim((cAlias)->A1_NOME)
-        aTail(jRet["items"])["tipo"]     := (cAlias)->A1_PESSOA
-        aTail(jRet["items"])["endereco"] := rtrim((cAlias)->A1_END)
+        aAdd(jRet["itens"], jsonObject():New())
+        aTail(jRet["itens"])["codigo"]   := (cAlias)->A1_COD
+        aTail(jRet["itens"])["loja"]     := (cAlias)->A1_LOJA
+        aTail(jRet["itens"])["nome"]     := rtrim((cAlias)->A1_NOME)
+        aTail(jRet["itens"])["tipo"]     := (cAlias)->A1_PESSOA
+        aTail(jRet["itens"])["endereco"] := rtrim((cAlias)->A1_END)
         (cAlias)->(dbSkip())
     end
     (cAlias)->(dbCloseArea())
