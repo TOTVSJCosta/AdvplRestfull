@@ -16,10 +16,9 @@ WSRESTFUL AdvplRest DESCRIPTION "Treinamento Advpl Webservice"
 END WSRESTFUL
 
 WSMETHOD POST Pedidos WSSERVICE AdvplRest
-    local nIts AS Numeric, aItens, aLinha, aCabec
+    local nIts AS Numeric, aItens, aLinha, aCabec, cRet AS Character
     local jPedido  := jsonObject():New()
     
-    ::SetContentType("application/json")
     jPedido:fromJSON(::GetContent()) // Pedidos no body da requisição
 
     aCabec := {}
@@ -40,15 +39,19 @@ WSMETHOD POST Pedidos WSSERVICE AdvplRest
     freeObj(jPedido)
 
     BEGIN TRANSACTION
-        lMsErroAuto := .f.
+        lMsErroAuto    := .f.
+        lMsHelpAuto	   := .t.
+        lAutoErrNoFile := .t.
         MSExecAuto({|a,b,c,d| MATA410(a,b,c,d)}, aCabec, aItens, 3)          
 
         If lMsErroAuto
-            SetRestFault(402, "Erro na inclusao do Pedido de venda") //MOSTRAERRO()
+            cRet := encodeUTF8(varInfo("Erro na inclusao do Pedido de venda", GetAutoGRLog()))
+            SetRestFault(402, cRet)
             RollBackSX8()
             DisarmTransaction()
         Else
             ConfirmSX8()
+            ::SetContentType("application/json")
             ::SetResponse("{'pedido': '" + SC5->C5_NUM + "'}")
         EndIf
     END TRANSACTION
